@@ -62,7 +62,21 @@ header .era{color:var(--muted);font-size:.9rem;margin-top:4px}
 .ghost{opacity:.8;font-size:.9rem;color:var(--muted)}
 
 footer{text-align:center;color:var(--muted);font-size:.85rem;padding:14px}
-.linklike{text-decoration:underline;cursor:pointer}
+  .linklike{text-decoration:underline;cursor:pointer}
+
+  body.light{
+    --bg:#f5f5f5; --fg:#0b1020; --muted:#555; --card:#ffffff;
+    --accent:#1f51ff; --good:#2e8b57; --bad:#b22222; --btn:#1f51ff; --btn-press:#1740cc;
+    background:var(--bg);
+  }
+
+  @media (max-width:600px){
+    .big-btn{font-size:clamp(1.4rem,6vw,2rem)}
+    .buy-btn{padding:14px;font-size:1rem}
+  }
+
+  .big-btn.pulse{animation:pulse .15s}
+  @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
 
 /* Guía y objetivos (tu bloque) */
 .guia{
@@ -102,6 +116,14 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:14px}
     <div class="row" style="margin-top:12px">
       <span class="ghost">Prototipo Fase 1 · Guardado automático</span>
       <span id="reset" class="linklike" title="Reiniciar partida">Reset</span>
+      <span id="export" class="linklike" title="Descargar save">Exportar</span>
+      <span id="import" class="linklike">Importar<input type="file" id="fileInput" style="display:none" /></span>
+      <span id="theme" class="linklike">Tema</span>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>Logros</h2>
+      <div id="achList" class="log-area"></div>
     </div>
 
     <div class="log card" style="margin-top:14px">
@@ -136,23 +158,42 @@ const ITEMS_DEF = [
   { key:'evo_core',       icon:'🧬', name:'Evolución del Núcleo',  baseCost:1000,costMult:2.5,  type:'mult', amount:0.10,desc:'+10% a todo',                 unlockEra:1 }
 ];
 
+const OBJECTIVES = [
+  { id:'scrapers10', label:'Compra 10 Scrapers', get:()=>state.items.scraper?.qty||0, target:10 },
+  { id:'gen1m', label:'Genera 1M bytes', get:()=>state.totalBytes, target:1e6 }
+];
+
+const ACHIEVEMENTS = [
+  { id:'million', label:'Genera 1M bytes', cond:()=>state.totalBytes>=1e6 }
+];
+
 /* ===== Estado + migración ===== */
 const $ = s => document.querySelector(s);
 const fmt = Intl.NumberFormat('es-AR', { notation:'compact', maximumFractionDigits:2 });
+let eventMult = 1;
 
 function DEFAULT_STATE(){
   return {
     bytes:0, totalBytes:0,
     items:Object.fromEntries(ITEMS_DEF.map(d => [d.key, { qty:0 }])),
-    era:0, log:[]
+    era:0, log:[],
+    objectives:{}, achievements:{},
   };
 }
 let state = DEFAULT_STATE();
 
 function migrateItems(){
   // Garantiza que todas las claves existan aunque el save sea viejo
+  if (!state.items) state.items = {};
+  if (!state.objectives) state.objectives = {};
+  if (!state.achievements) state.achievements = {};
   for (const def of ITEMS_DEF){
-    if (!state.items[def.key]) state.items[def.key] = { qty:0 };
+    const item = state.items[def.key];
+    if (!item) {
+      state.items[def.key] = { qty:0 };
+    } else if (typeof item.qty !== 'number') {
+      item.qty = 0;
+    }
   }
 }
 
@@ -167,13 +208,31 @@ function computeDerived(){
     else if (def.type==='auto') auto += q*def.amount;
     else if (def.type==='mult') mult += q*def.amount;
   }
-  return { perClick:click*mult, perSec:auto*mult, mult };
+  return { perClick:click*mult*eventMult, perSec:auto*mult*eventMult, mult:mult*eventMult };
+}
+
+function scheduleEvent(){
+  const ms = 60000 + Math.random()*60000;
+  setTimeout(triggerEvent, ms);
+}
+
+function triggerEvent(){
+  const pool=[
+    {mult:0.5, text:'Caída de servidores: producción -50% durante 30s', style:'bad'},
+    {mult:2,   text:'Boom de datos: producción x2 durante 30s', style:'good'}
+  ];
+  const ev = pool[Math.floor(Math.random()*pool.length)];
+  eventMult = ev.mult;
+  pushMsg(ev.text, ev.style);
+  setTimeout(()=>{ eventMult=1; pushMsg('Evento finalizado','small'); scheduleEvent(); },30000);
 }
 
 /* ===== DOM ===== */
 const bytesEl=$('#bytes'), bpsEl=$('#bps'), perClickEl=$('#perClick'), multEl=$('#mult'),
       guiaEl=$('#guia'), objetivosEl=$('#objetivos'), eraLabel=$('#eraLabel'),
-      clickBtn=$('#clickBtn'), itemsWrap=$('#items'), logWrap=$('#log'), resetBtn=$('#reset');
+      clickBtn=$('#clickBtn'), itemsWrap=$('#items'), logWrap=$('#log'), resetBtn=$('#reset'),
+      exportBtn=$('#export'), importBtn=$('#import'), fileInput=$('#fileInput'),
+      themeBtn=$('#theme'), achWrap=$('#achList');
 
 /* ===== Render ===== */
 function renderStore(){
@@ -236,18 +295,42 @@ function renderObjetivos(){
 
   if (nextThr){
     const prog = Math.min(1, state.totalBytes / nextThr);
-    const o = document.createElement('div'); o.className='objetivo';
-    o.textContent = `Progreso hacia Era ${state.era+1}: ${fmt.format(state.totalBytes)} / ${fmt.format(nextThr)}`;
-    const bar = document.createElement('div'); bar.className='barra';
-    const fill = document.createElement('div'); fill.style.width = `${(prog*100).toFixed(0)}%`;
-    bar.append(fill); o.append(bar); objetivosEl.append(o);
+    const o = createObj(`Progreso hacia Era ${state.era+1}`, prog, `${fmt.format(state.totalBytes)} / ${fmt.format(nextThr)}`);
+    objetivosEl.append(o);
   }
 
-  if ((state.items.scraper?.qty ?? 0) === 0){
-    const price = costOf(ITEMS_DEF.find(i=>i.key==='scraper'), 0);
-    const o = document.createElement('div'); o.className='objetivo';
-    o.textContent = `Compra tu primer Scraper (${fmt.format(price)})`;
+  for (const obj of OBJECTIVES){
+    if (state.objectives[obj.id]) continue;
+    const cur = obj.get();
+    const prog = Math.min(1, cur / obj.target);
+    const o = createObj(obj.label, prog, `${cur|0} / ${obj.target}`);
     objetivosEl.append(o);
+    if (prog >= 1){ state.objectives[obj.id]=true; pushMsg(`Objetivo completado: ${obj.label}`,'small'); save(); }
+  }
+}
+
+function createObj(label, prog, text){
+  const o=document.createElement('div'); o.className='objetivo';
+  o.textContent=`${label}: ${text}`;
+  const bar=document.createElement('div'); bar.className='barra';
+  const fill=document.createElement('div'); fill.style.width=`${(prog*100).toFixed(0)}%`;
+  bar.append(fill); o.append(bar); return o;
+}
+
+function renderAchievements(){
+  achWrap.innerHTML='';
+  for (const a of ACHIEVEMENTS){
+    if (state.achievements[a.id]){
+      const div=document.createElement('div'); div.className='msg small';
+      div.textContent=`🏆 ${a.label}`; achWrap.append(div);
+    }
+  }
+}
+
+function checkAchievements(){
+  for (const a of ACHIEVEMENTS){
+    if (state.achievements[a.id]) continue;
+    if (a.cond()){ state.achievements[a.id]=true; pushMsg(`Logro desbloqueado: ${a.label}`,'good'); renderAchievements(); save(); }
   }
 }
 
@@ -272,17 +355,24 @@ function renderTopline(){
   multEl.textContent  = `x${d.mult.toFixed(2)}`;
 }
 
-function renderAll(){ renderTopline(); renderStore(); renderLog(); applyEraVisuals(state.era); }
+function renderAll(){ renderTopline(); renderStore(); renderLog(); renderAchievements(); applyEraVisuals(state.era); }
 
 /* ===== Interacciones ===== */
+const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+function playClick(){
+  const osc=audioCtx.createOscillator(); const gain=audioCtx.createGain();
+  osc.frequency.value=880; gain.gain.value=0.05; osc.connect(gain).connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime+0.05);
+}
+
 function doClick(times=1){
   const { perClick } = computeDerived();
   const inc = perClick * times;
   state.bytes += inc; state.totalBytes += inc;
-  renderTopline(); renderObjetivos();
+  renderTopline(); renderObjetivos(); checkAchievements();
 }
 
-clickBtn.addEventListener('click', () => doClick(1));
+clickBtn.addEventListener('click', () => { doClick(1); playClick(); clickBtn.classList.add('pulse'); setTimeout(()=>clickBtn.classList.remove('pulse'),150); });
 window.addEventListener('keydown', e => {
   if (e.code === 'Space' || e.code === 'Enter'){ e.preventDefault(); doClick(1); }
 });
@@ -292,25 +382,41 @@ resetBtn.addEventListener('click', () => {
   save(); renderAll(); pushMsg('Progreso reiniciado.','small');
 });
 
+exportBtn.addEventListener('click', () => {
+  const blob=new Blob([JSON.stringify(state)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='ai-clicker-save.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
+
+importBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => {
+  const f=e.target.files[0]; if(!f) return;
+  f.text().then(t=>{ state=JSON.parse(t); migrateItems(); save(); renderAll(); pushMsg('Partida importada.','small'); });
+});
+
+themeBtn.addEventListener('click', () => { document.body.classList.toggle('light'); });
+
 /* ===== Boot ===== */
 (function init(){
   const saved = load();
   if (saved) state = saved;
   migrateItems();                // <- FIX JS: asegura todas las claves
   if (state.log.length === 0) pushMsg('Sistema online. Haz clic y compra mejoras para progresar.','small');
-  renderAll();
+  renderAll(); checkAchievements();
   setInterval(save, 5000);
+  scheduleEvent();
 
   let last = performance.now();
   function loop(now){
     const dt = Math.min(0.25, (now - last) / 1000); last = now;
     const { perSec } = computeDerived();
-    if (perSec > 0){ state.bytes += perSec*dt; state.totalBytes += perSec*dt; }
-    maybeAdvanceEra();
-    // refresco ligero de UI
-    renderTopline(); renderStore(); renderObjetivos();
-    requestAnimationFrame(loop);
-  }
+      if (perSec > 0){ state.bytes += perSec*dt; state.totalBytes += perSec*dt; }
+      maybeAdvanceEra();
+      // refresco ligero de UI
+      renderTopline(); renderStore(); renderObjetivos(); checkAchievements();
+      requestAnimationFrame(loop);
+    }
   requestAnimationFrame(loop);
 })();
 </script>
