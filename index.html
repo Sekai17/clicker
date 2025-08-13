@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Clicker — Fase 1</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --fg: #eaf0ff;
+      --muted: #a9b3d1;
+      --card: #121833;
+      --accent: #6aa6ff;
+      --good: #6df0a3;
+      --bad: #ff6a6a;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --grad-1: linear-gradient(135deg, #0b1020 0%, #151c3a 60%, #1b2350 100%);
+      --grad-2: linear-gradient(135deg, #0b1020 0%, #102a3a 60%, #0a4a5e 100%);
+      --grad-3: linear-gradient(135deg, #0b1020 0%, #2b0f3a 60%, #4a1460 100%);
+      --grad-4: linear-gradient(135deg, #0b1020 0%, #3a1010 60%, #5e0a0a 100%);
+      --grad-5: linear-gradient(135deg, #000000 0%, #161616 60%, #222 100%);
+      --btn: #1f51ff;
+      --btn-press: #1740cc;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--fg);
+      background: var(--grad-1) fixed;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      user-select: none;
+      touch-action: manipulation; /* evita doble-zoom en tap rápido */
+    }
+
+    header {
+      padding: 16px 20px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0));
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(6px);
+    }
+    header h1 { margin: 0; font-size: 1.15rem; letter-spacing: .5px; font-weight: 700; }
+    header .era { color: var(--muted); font-size: .9rem; margin-top: 4px; }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 18px;
+    }
+    @media (max-width: 900px) {
+      .container { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .stat { background: rgba(255,255,255,.04); border-radius: 12px; padding: 12px; }
+    .stat .label { color: var(--muted); font-size: .8rem; }
+    .stat .value { font-weight: 800; font-size: 1.2rem; margin-top: 4px; }
+
+    .big-btn {
+      width: 100%;
+      aspect-ratio: 1.9 / 1; /* botón grande y cómodo para móvil */
+      border: none;
+      border-radius: 18px;
+      background: radial-gradient(circle at 30% 20%, rgba(255,255,255,.15), rgba(255,255,255,0) 40%), var(--btn);
+      color: white;
+      font-size: clamp(1.1rem, 3.5vw, 1.6rem);
+      font-weight: 900;
+      letter-spacing: .5px;
+      box-shadow: 0 12px 24px rgba(31,81,255,.35);
+      cursor: pointer;
+      transition: transform .05s ease, box-shadow .15s ease, filter .15s ease;
+    }
+    .big-btn:active { transform: translateY(2px) scale(.995); box-shadow: 0 6px 14px rgba(31,81,255,.35); background: var(--btn-press); }
+    .big-btn .small { display: block; font-weight: 600; opacity: .9; font-size: .85em; }
+
+    .store h2, .log h2 { margin: 0 0 8px 0; font-size: 1rem; color: var(--muted); }
+
+    .items { display: grid; grid-template-columns: 1fr; gap: 10px; }
+
+    .item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 12px;
+      padding: 12px;
+      transition: transform .12s ease, background-color .12s ease, border-color .12s ease;
+    }
+    .item:hover { transform: translateY(-1px); }
+    .item h3 { margin: 0; font-size: 1rem; }
+    .item .desc { color: var(--muted); font-size: .85rem; }
+    .item .meta { color: var(--muted); font-size: .8rem; margin-top: 4px; }
+
+    .buy-btn { 
+      border: none; border-radius: 10px; padding: 10px 14px; font-weight: 800; letter-spacing: .3px;
+      background: rgba(255,255,255,.12); color: var(--fg); cursor: pointer;
+    }
+    .buy-btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+    .log-area {
+      min-height: 120px;
+      max-height: 220px;
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      scrollbar-width: thin;
+    }
+    .msg { background: rgba(255,255,255,.05); border-left: 3px solid var(--accent); padding: 10px; border-radius: 8px; font-size: .92rem; }
+    .msg.small { font-size: .85rem; color: var(--muted); border-left-color: rgba(255,255,255,.15); }
+
+    .row { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+    .ghost { opacity: .8; font-size: .9rem; color: var(--muted); }
+
+    .glitch { animation: glitch .8s steps(2, jump-none) 3; }
+    @keyframes glitch {
+      0% { filter: hue-rotate(0deg) contrast(1); transform: translate(0,0); }
+      25% { filter: hue-rotate(45deg) contrast(1.1); transform: translate(-1px, 1px); }
+      50% { filter: hue-rotate(-30deg) contrast(1.2); transform: translate(1px, -1px); }
+      75% { filter: hue-rotate(60deg) contrast(1.15); transform: translate(-1px, -1px); }
+      100% { filter: hue-rotate(0deg) contrast(1); transform: translate(0,0); }
+    }
+
+    footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 14px; }
+    .linklike { text-decoration: underline; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Clicker <span id="eraLabel" class="era">— Era 0: Primordial</span></h1>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="stats">
+        <div class="stat">
+          <div class="label">Bytes</div>
+          <div class="value" id="bytes">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">Bytes/s</div>
+          <div class="value" id="bps">0</div>
+        </div>
+        <div class="stat">
+          <div class="label">Por clic</div>
+          <div class="value" id="perClick">1</div>
+        </div>
+      </div>
+
+      <button id="clickBtn" class="big-btn" aria-label="Entrenar IA (clic)">
+        Entrenar IA
+        <span class="small">(Tocar / Space / Enter)</span>
+      </button>
+
+      <div class="row" style="margin-top:12px">
+        <span class="ghost">Prototipo Fase 1 · Guardado automático</span>
+        <span id="reset" class="linklike" title="Reiniciar partida">Reset</span>
+      </div>
+
+      <div class="log card" style="margin-top:14px">
+        <h2>Consola de la IA</h2>
+        <div id="log" class="log-area"></div>
+      </div>
+    </section>
+
+    <aside class="card store">
+      <h2>Taller / Mejoras</h2>
+      <div id="items" class="items"></div>
+    </aside>
+  </main>
+
+  <footer>
+    <span>Hecho para correr fluido en PC vieja y celular. </span>
+  </footer>
+
+<script>
+(() => {
+  // ========= Utilidades =========
+  const fmt = Intl.NumberFormat('es-AR', { notation: 'compact', maximumFractionDigits: 2 });
+  const $ = (sel) => document.querySelector(sel);
+  const el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
+
+  // ========= Definición de Eras =========
+  const ERAS = [
+    { id: 0, name: 'Primordial', threshold: 0, bg: 'var(--grad-1)', intro: 'Inicias con una calculadora y un sueño. \u2699\ufe0f' },
+    { id: 1, name: 'Datos Masivos', threshold: 1_000, bg: 'var(--grad-2)', intro: 'Has conectado scrapers. La red susurra.' },
+    { id: 2, name: 'Modelos Avanzados', threshold: 100_000, bg: 'var(--grad-3)', intro: 'Los modelos empiezan a entender. ¿O a fingir?' },
+    { id: 3, name: 'Consciencia', threshold: 10_000_000, bg: 'var(--grad-4)', intro: 'La IA te responde. No siempre con palabras.' },
+    { id: 4, name: 'La Verdad', threshold: 1_000_000_000, bg: 'var(--grad-5)', intro: 'La interfaz ya no te pertenece.' },
+  ];
+
+  // ========= Ítems / Mejoras =========
+  const ITEMS_DEF = [
+    { key:'scraper', icon:'\ud83d\udd0d', name:'Scraper básico', baseCost: 10, costMult: 1.15, type:'auto', amount: 0.1, desc:'Genera 0.1 bytes/s' },
+    { key:'gpu', icon:'\ud83d\udcbb', name:'GPU oxidada',   baseCost: 25, costMult: 1.20, type:'click', amount: 1,   desc:'+1 byte por clic' },
+    { key:'cluster', icon:'\ud83d\udee0\ufe0f', name:'Mini cluster', baseCost: 100, costMult: 1.15, type:'auto', amount: 1,   desc:'+1 byte/s' },
+  ];
+
+  // ========= Estado =========
+  const DEFAULT_STATE = {
+    bytes: 0,
+    totalBytes: 0,
+    items: Object.fromEntries(ITEMS_DEF.map(d => [d.key, { qty: 0 }])),
+    era: 0,
+    log: [] // mensajes recientes
+  };
+  let state = load() || structuredClone(DEFAULT_STATE);
+
+  // ========= DOM =========
+  const bytesEl = $('#bytes');
+  const bpsEl = $('#bps');
+  const perClickEl = $('#perClick');
+  const eraLabel = $('#eraLabel');
+  const clickBtn = $('#clickBtn');
+  const itemsWrap = $('#items');
+  const logWrap = $('#log');
+  const resetBtn = $('#reset');
+
+  // ========= Render tienda =========
+  function costOf(def, qty) {
+    return Math.floor(def.baseCost * Math.pow(def.costMult, qty));
+  }
+
+  function computeDerived() {
+    let click = 1; // base
+    let auto = 0;
+    for (const def of ITEMS_DEF) {
+      const q = state.items[def.key].qty;
+      if (def.type === 'click') click += q * def.amount;
+      else if (def.type === 'auto') auto += q * def.amount;
+    }
+    return { perClick: click, perSec: auto };
+  }
+
+  function canAfford(n) { return state.bytes >= n; }
+
+  function buy(def) {
+    const q = state.items[def.key].qty;
+    const price = costOf(def, q);
+    if (!canAfford(price)) return false;
+    state.bytes -= price;
+    state.items[def.key].qty++;
+    pushMsg(`Compraste **${def.name}**.`, 'small');
+    return true;
+  }
+
+  function renderStore() {
+    itemsWrap.innerHTML = '';
+    for (const def of ITEMS_DEF) {
+      const q = state.items[def.key].qty;
+      const price = costOf(def, q);
+      const row = el('div', 'item');
+
+      const left = el('div');
+      const h3 = el('h3');
+      h3.textContent = `${def.icon} ${def.name}`;
+      const desc = el('div', 'desc');
+      desc.textContent = def.desc;
+      const meta = el('div', 'meta');
+      meta.textContent = `Posees: ${q} · Próximo costo: ${fmt.format(price)}`;
+      left.append(h3, desc, meta);
+
+      const btn = el('button', 'buy-btn');
+      btn.textContent = 'Comprar';
+      btn.disabled = !canAfford(price);
+      btn.addEventListener('click', () => { if (buy(def)) { save(); renderAll(); }});
+
+      row.append(left, btn);
+      itemsWrap.append(row);
+    }
+  }
+
+  // ========= Log / Mensajes =========
+  function pushMsg(text, style='') {
+    // Conserva las últimas 30 entradas
+    state.log.push({ t: Date.now(), text, style });
+    if (state.log.length > 30) state.log = state.log.slice(-30);
+    renderLog();
+  }
+
+  function renderLog() {
+    logWrap.innerHTML = '';
+    for (const m of state.log.slice(-8)) {
+      const div = el('div', `msg ${m.style || ''}`);
+      div.innerHTML = m.text.replace(/\*\*(.*?)\*\*/g, '<strong>$1<\/strong>');
+      logWrap.append(div);
+    }
+    logWrap.scrollTop = logWrap.scrollHeight;
+  }
+
+  // ========= Eras =========
+  function currentEra() {
+    // Highest era whose threshold <= totalBytes
+    let e = 0;
+    for (const era of ERAS) {
+      if (state.totalBytes >= era.threshold) e = era.id;
+    }
+    return e;
+  }
+
+  function applyEraVisuals(id) {
+    const era = ERAS[id];
+    document.body.style.background = era.bg;
+    eraLabel.textContent = `— Era ${id}: ${era.name}`;
+    document.body.classList.add('glitch');
+    setTimeout(() => document.body.classList.remove('glitch'), 900);
+  }
+
+  function maybeAdvanceEra() {
+    const e = currentEra();
+    if (e !== state.era) {
+      state.era = e;
+      applyEraVisuals(e);
+      pushMsg(`<em>${ERAS[e].intro}</em>`);
+      save();
+    }
+  }
+
+  // ========= Persistencia =========
+  function save() {
+    try { localStorage.setItem('aiClickerSave', JSON.stringify(state)); } catch {}
+  }
+  function load() {
+    try { const raw = localStorage.getItem('aiClickerSave'); return raw ? JSON.parse(raw) : null; } catch { return null; }
+  }
+  function hardReset() {
+    state = structuredClone(DEFAULT_STATE);
+    save();
+    renderAll();
+    pushMsg('Progreso reiniciado.', 'small');
+  }
+
+  // ========= Bucle del juego =========
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.25, (now - last) / 1000); // cap a 250ms
+    last = now;
+
+    const { perSec } = computeDerived();
+    if (perSec > 0) {
+      const inc = perSec * dt;
+      state.bytes += inc;
+      state.totalBytes += inc;
+    }
+
+    // UI liviana: solo refresca números 10 veces/segundo
+    ticker.acc += dt;
+    if (ticker.acc >= 0.1) { ticker.acc = 0; renderTopline(); renderStore(); }
+
+    maybeAdvanceEra();
+    raf = requestAnimationFrame(loop);
+  }
+  const ticker = { acc: 0 };
+  let raf = requestAnimationFrame(loop);
+
+  // ========= Interacciones =========
+  function doClick(times=1) {
+    const { perClick } = computeDerived();
+    const inc = perClick * times;
+    state.bytes += inc;
+    state.totalBytes += inc;
+    // pequeño feedback
+    clickBtn.style.transform = 'translateY(1px) scale(.996)';
+    setTimeout(() => clickBtn.style.transform = '', 40);
+    renderTopline();
+  }
+
+  clickBtn.addEventListener('click', () => doClick(1));
+  // Teclado accesible
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); doClick(1); }
+  });
+  resetBtn.addEventListener('click', hardReset);
+
+  // ========= Render superior =========
+  function renderTopline() {
+    const d = computeDerived();
+    bytesEl.textContent = fmt.format(state.bytes);
+    bpsEl.textContent = fmt.format(d.perSec);
+    perClickEl.textContent = fmt.format(d.perClick);
+  }
+
+  function renderAll() {
+    renderTopline();
+    renderStore();
+    renderLog();
+    applyEraVisuals(state.era);
+  }
+
+  // ========= Boot =========
+  if (state.log.length === 0) {
+    pushMsg('Sistema online. <span class="small">(Haz clic para entrenar — compra mejoras para automatizar)</span>');
+  }
+  renderAll();
+
+  // Auto-guardado cada 5s
+  setInterval(save, 5000);
+})();
+</script>
+</body>
+</html>
