@@ -62,7 +62,23 @@ header .era{color:var(--muted);font-size:.9rem;margin-top:4px}
 .ghost{opacity:.8;font-size:.9rem;color:var(--muted)}
 
 footer{text-align:center;color:var(--muted);font-size:.85rem;padding:14px}
-.linklike{text-decoration:underline;cursor:pointer}
+  .linklike{text-decoration:underline;cursor:pointer}
+
+  body.light{
+    --bg:#f5f5f5; --fg:#0b1020; --muted:#555; --card:#ffffff;
+    --accent:#1f51ff; --good:#2e8b57; --bad:#b22222; --btn:#1f51ff; --btn-press:#1740cc;
+    background:var(--bg);
+  }
+
+  @media (max-width:600px){
+    .big-btn{font-size:clamp(1.4rem,6vw,2rem)}
+    .buy-btn{padding:14px;font-size:1rem}
+  }
+
+  .pulse{animation:pulse 1s infinite alternate}
+  .big-btn.click-pulse{animation:pulse .15s}
+  @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
+  @media (prefers-reduced-motion:reduce){.pulse,.click-pulse{animation:none!important}}
 
 /* Guía y objetivos (tu bloque) */
 .guia{
@@ -86,7 +102,7 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:14px}
 <main class="container">
   <section class="card">
     <div class="stats">
-      <div class="stat"><div class="label">Bytes</div><div class="value" id="bytes">0</div></div>
+        <div class="stat"><div class="label">Bytes</div><div class="value" id="bytes" aria-live="polite">0</div></div>
       <div class="stat"><div class="label">Bytes/s</div><div class="value" id="bps">0</div></div>
       <div class="stat"><div class="label">Por clic</div><div class="value" id="perClick">1</div></div>
       <div class="stat"><div class="label">Multiplicador</div><div class="value" id="mult">x1.00</div></div>
@@ -102,6 +118,15 @@ footer{text-align:center;color:var(--muted);font-size:.85rem;padding:14px}
     <div class="row" style="margin-top:12px">
       <span class="ghost">Prototipo Fase 1 · Guardado automático</span>
       <span id="reset" class="linklike" title="Reiniciar partida">Reset</span>
+      <span id="export" class="linklike" title="Descargar save">Exportar</span>
+      <span id="import" class="linklike">Importar<input type="file" id="fileInput" style="display:none" /></span>
+      <span id="theme" class="linklike">Tema</span>
+      <span id="sound" class="linklike">Sonido</span>
+    </div>
+
+    <div id="achCard" class="card" style="margin-top:14px">
+      <h2>Logros</h2>
+      <div id="achList" class="log-area"></div>
     </div>
 
     <div class="log card" style="margin-top:14px">
@@ -136,24 +161,38 @@ const ITEMS_DEF = [
   { key:'evo_core',       icon:'🧬', name:'Evolución del Núcleo',  baseCost:1000,costMult:2.5,  type:'mult', amount:0.10,desc:'+10% a todo',                 unlockEra:1 }
 ];
 
+const OBJECTIVES = [
+  { id:'scrapers10', label:'Compra 10 Scrapers', get:()=>state.items.scraper?.qty||0, target:10 },
+  { id:'gen1m', label:'Genera 1M bytes', get:()=>state.totalBytes, target:1e6 }
+];
+
+const ACHIEVEMENTS = [
+  { id:'million', label:'Genera 1M bytes', cond:()=>state.totalBytes>=1e6 }
+];
+
 /* ===== Estado + migración ===== */
 const $ = s => document.querySelector(s);
 const fmt = Intl.NumberFormat('es-AR', { notation:'compact', maximumFractionDigits:2 });
+let eventMult = 1;
 
 function DEFAULT_STATE(){
   return {
     bytes:0, totalBytes:0,
     items:Object.fromEntries(ITEMS_DEF.map(d => [d.key, { qty:0 }])),
-    era:0, log:[]
+    era:0, bonus:0, log:[],
+    objectives:{}, achievements:{},
   };
 }
 let state = DEFAULT_STATE();
 
-function migrateItems(){
-  // Garantiza que todas las claves existan aunque el save sea viejo
-  for (const def of ITEMS_DEF){
-    if (!state.items[def.key]) state.items[def.key] = { qty:0 };
-  }
+function migrateState(s){
+  s ||= {};
+  s.items ||= {};
+  for (const d of ITEMS_DEF) s.items[d.key] ||= {qty:0};
+  s.objectives ||= {};
+  s.achievements ||= {};
+  s.bonus ||= 0;
+  return s;
 }
 
 /* ===== Util ===== */
@@ -167,49 +206,81 @@ function computeDerived(){
     else if (def.type==='auto') auto += q*def.amount;
     else if (def.type==='mult') mult += q*def.amount;
   }
-  return { perClick:click*mult, perSec:auto*mult, mult };
+  const totalMult = mult + state.bonus;
+  return { perClick:click*totalMult*eventMult, perSec:auto*totalMult*eventMult, mult:totalMult*eventMult };
+}
+
+function scheduleEvent(){
+  const ms = 60000 + Math.random()*60000;
+  setTimeout(triggerEvent, ms);
+}
+
+function triggerEvent(){
+  const pool=[
+    {mult:0.5, text:'Caída de servidores: producción -50% durante 30s', style:'bad'},
+    {mult:2,   text:'Boom de datos: producción x2 durante 30s', style:'good'}
+  ];
+  const ev = pool[Math.floor(Math.random()*pool.length)];
+  eventMult = ev.mult;
+  pushMsg(ev.text, ev.style);
+  setTimeout(()=>{ eventMult=1; pushMsg('Evento finalizado','small'); scheduleEvent(); },30000);
 }
 
 /* ===== DOM ===== */
 const bytesEl=$('#bytes'), bpsEl=$('#bps'), perClickEl=$('#perClick'), multEl=$('#mult'),
       guiaEl=$('#guia'), objetivosEl=$('#objetivos'), eraLabel=$('#eraLabel'),
-      clickBtn=$('#clickBtn'), itemsWrap=$('#items'), logWrap=$('#log'), resetBtn=$('#reset');
+      clickBtn=$('#clickBtn'), itemsWrap=$('#items'), logWrap=$('#log'), resetBtn=$('#reset'),
+      exportBtn=$('#export'), importBtn=$('#import'), fileInput=$('#fileInput'),
+      themeBtn=$('#theme'), soundBtn=$('#sound'), achWrap=$('#achList'), achCard=$('#achCard'),
+      storeEl=document.querySelector('.store');
 
 /* ===== Render ===== */
 function renderStore(){
   itemsWrap.innerHTML='';
   for (const def of ITEMS_DEF.filter(d => (d.unlockEra||0) <= state.era)){
-    const q = state.items[def.key]?.qty ?? 0;              // <- acceso seguro
-    const price = costOf(def, q);
+    const row=document.createElement('div'); row.className='item'; row.dataset.key=def.key;
+    const left=document.createElement('div');
 
-    const row = document.createElement('div'); row.className='item';
-    const left = document.createElement('div');
-
-    const h3 = document.createElement('h3'); h3.textContent = `${def.icon} ${def.name}`;
-    const desc = document.createElement('div'); desc.className='desc';
+    const h3=document.createElement('h3'); h3.textContent=`${def.icon} ${def.name}`;
+    const desc=document.createElement('div'); desc.className='desc';
     const delta = def.type==='click' ? `+${def.amount} /clic`
                : def.type==='auto'  ? `+${def.amount} B/s`
                                      : `+${Math.round(def.amount*100)}% global`;
     desc.textContent = `${def.desc} (${delta})`;
 
-    const meta = document.createElement('div'); meta.className='meta';
-    meta.textContent = `Posees: ${q} · Próximo costo: ${fmt.format(price)}`;
-
+    const meta=document.createElement('div'); meta.className='meta';
     left.append(h3, desc, meta);
 
-    const btn = document.createElement('button'); btn.className='buy-btn'; btn.textContent='Comprar';
-    btn.disabled = state.bytes < price;
+    const btn=document.createElement('button'); btn.className='buy-btn'; btn.textContent='Comprar';
     btn.addEventListener('click', () => {
-      if (state.bytes >= price){
-        state.bytes -= price;
-        state.items[def.key].qty = (state.items[def.key]?.qty ?? 0) + 1;
-        save(); renderAll();
+      const qty=state.items[def.key]?.qty ?? 0;
+      const price=costOf(def, qty);
+      if(state.bytes>=price){
+        state.bytes-=price;
+        state.items[def.key].qty=qty+1;
+        save();
+        updateAffordability();
+        renderTopline();
+        renderObjetivos();
+        checkAchievements();
       }
     });
 
     row.append(left, btn);
     itemsWrap.append(row);
   }
+  updateAffordability();
+}
+
+function updateAffordability(){
+  document.querySelectorAll('.item').forEach(row=>{
+    const key=row.dataset.key;
+    const def=ITEMS_DEF.find(d=>d.key===key);
+    const qty=state.items[key]?.qty ?? 0;
+    const price=costOf(def, qty);
+    row.querySelector('.meta').textContent = `Posees: ${qty} · Próximo costo: ${fmt.format(price)}`;
+    row.querySelector('.buy-btn').disabled = state.bytes < price;
+  });
 }
 
 function pushMsg(t, style=''){ state.log.push({t:Date.now(), text:t, style}); if(state.log.length>30) state.log = state.log.slice(-30); renderLog(); }
@@ -231,31 +302,80 @@ function applyEraVisuals(id){
 }
 
 function renderObjetivos(){
-  const nextThr = ERAS[state.era + 1]?.threshold;
-  objetivosEl.innerHTML = '';
-
-  if (nextThr){
-    const prog = Math.min(1, state.totalBytes / nextThr);
-    const o = document.createElement('div'); o.className='objetivo';
-    o.textContent = `Progreso hacia Era ${state.era+1}: ${fmt.format(state.totalBytes)} / ${fmt.format(nextThr)}`;
-    const bar = document.createElement('div'); bar.className='barra';
-    const fill = document.createElement('div'); fill.style.width = `${(prog*100).toFixed(0)}%`;
-    bar.append(fill); o.append(bar); objetivosEl.append(o);
+  objetivosEl.innerHTML='';
+  const objs=[];
+  const nextThr = ERAS[state.era+1]?.threshold;
+  if(nextThr) objs.push({label:`Progreso hacia Era ${state.era+1}`, cur:state.totalBytes, target:nextThr});
+  const d = computeDerived();
+  if(d.perSec<1) objs.push({label:'Genera 1 byte/s', cur:d.perSec, target:1});
+  const buyGoals=[
+    {key:'scraper', label:'Compra un Scraper'},
+    {key:'autoclicker_v2', label:'Compra Auto-clicker v2'},
+    {key:'evo_core', label:'Compra Evolución del Núcleo'}
+  ];
+  for(const g of buyGoals){
+    if((state.items[g.key]?.qty||0)===0){
+      const def=ITEMS_DEF.find(d=>d.key===g.key);
+      const price=costOf(def,state.items[g.key]?.qty||0);
+      objs.push({label:g.label, cur:state.bytes, target:price, pulse:true});
+      break;
+    }
   }
-
-  if ((state.items.scraper?.qty ?? 0) === 0){
-    const price = costOf(ITEMS_DEF.find(i=>i.key==='scraper'), 0);
-    const o = document.createElement('div'); o.className='objetivo';
-    o.textContent = `Compra tu primer Scraper (${fmt.format(price)})`;
-    objetivosEl.append(o);
+  for(const obj of OBJECTIVES){
+    if(state.objectives[obj.id]) continue;
+    objs.push({label:obj.label, cur:obj.get(), target:obj.target, id:obj.id});
   }
+  let pulse=false;
+  for(const o of objs.slice(0,3)){
+    const prog=Math.min(1,o.cur/o.target);
+    const el=createObj(o.label, prog, `${fmt.format(o.cur)} / ${fmt.format(o.target)}`);
+    objetivosEl.append(el);
+    if(o.id && prog>=1){ state.objectives[o.id]=true; pushMsg(`Objetivo completado: ${o.label}`,'small'); save(); }
+    if(o.pulse) pulse=true;
+  }
+  storeEl.classList.toggle('pulse', pulse);
+}
+
+function createObj(label, prog, text){
+  const o=document.createElement('div'); o.className='objetivo';
+  o.textContent=`${label}: ${text}`;
+  const bar=document.createElement('div'); bar.className='barra';
+  const fill=document.createElement('div'); fill.style.width=`${(prog*100).toFixed(0)}%`;
+  bar.append(fill); o.append(bar); return o;
+}
+
+function renderAchievements(){
+  achWrap.innerHTML='';
+  let count=0;
+  for (const a of ACHIEVEMENTS){
+    if (state.achievements[a.id]){
+      const div=document.createElement('div'); div.className='msg small';
+      div.textContent=`🏆 ${a.label}`; achWrap.append(div); count++;
+    }
+  }
+  if(!count) achWrap.textContent='Próximamente';
+}
+
+function checkAchievements(){
+  for (const a of ACHIEVEMENTS){
+    if (state.achievements[a.id]) continue;
+    if (a.cond()){ state.achievements[a.id]=true; pushMsg(`Logro desbloqueado: ${a.label}`,'good'); renderAchievements(); save(); }
+  }
+}
+
+function onboarding(){
+  if(!localStorage.getItem('ob1')){ pushMsg('Haz clic para generar bytes.','small'); localStorage.setItem('ob1','1'); }
+  setTimeout(()=>{ if(!localStorage.getItem('ob2')){ pushMsg('Compra un Scraper en la tienda.','small'); localStorage.setItem('ob2','1'); } },10000);
+  setTimeout(()=>{ if(!localStorage.getItem('ob3')){ pushMsg('Revisa tus Objetivos.','small'); localStorage.setItem('ob3','1'); } },20000);
 }
 
 function maybeAdvanceEra(){
   const e = currentEra();
   if (e !== state.era){
     state.era = e;
+    state.bonus = (state.bonus||0) + 0.10;
     applyEraVisuals(e);
+    renderStore();
     pushMsg(`<em>${ERAS[e].intro}</em>`);
     save();
   }
@@ -272,47 +392,104 @@ function renderTopline(){
   multEl.textContent  = `x${d.mult.toFixed(2)}`;
 }
 
-function renderAll(){ renderTopline(); renderStore(); renderLog(); applyEraVisuals(state.era); }
+function renderAll(){ renderTopline(); renderStore(); renderLog(); renderAchievements(); applyEraVisuals(state.era); updateAffordability(); }
 
 /* ===== Interacciones ===== */
-function doClick(times=1){
-  const { perClick } = computeDerived();
-  const inc = perClick * times;
-  state.bytes += inc; state.totalBytes += inc;
-  renderTopline(); renderObjetivos();
+let sfxOn=false,lastSfx=0;
+const sfx=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=');
+function playSfx(){
+  const now=performance.now();
+  if(!sfxOn||now-lastSfx<80) return;
+  lastSfx=now; sfx.currentTime=0; sfx.play().catch(()=>{});
 }
 
-clickBtn.addEventListener('click', () => doClick(1));
-window.addEventListener('keydown', e => {
-  if (e.code === 'Space' || e.code === 'Enter'){ e.preventDefault(); doClick(1); }
-});
+  function doClick(times=1){
+    const { perClick } = computeDerived();
+    const inc = perClick * times;
+    state.bytes += inc; state.totalBytes += inc;
+    renderTopline(); renderObjetivos(); checkAchievements();
+  }
+
+  let holdT=null, holdI=null;
+  function startHold(){
+    if(holdT) return;
+    doClick(1); playSfx(); clickBtn.classList.add('click-pulse');
+    setTimeout(()=>clickBtn.classList.remove('click-pulse'),150);
+    holdT=setTimeout(()=>{ holdI=setInterval(()=>{doClick(1); playSfx();},70); },280);
+  }
+  function endHold(){ clearTimeout(holdT); holdT=null; clearInterval(holdI); holdI=null; }
+
+  clickBtn.addEventListener('mousedown', startHold);
+  window.addEventListener('mouseup', endHold);
+  clickBtn.addEventListener('touchstart', e=>{ e.preventDefault(); startHold(); }, {passive:false});
+  window.addEventListener('touchend', endHold);
+  window.addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'Enter'){ e.preventDefault(); doClick(1); playSfx(); }
+  });
 
 resetBtn.addEventListener('click', () => {
   state = DEFAULT_STATE();
   save(); renderAll(); pushMsg('Progreso reiniciado.','small');
 });
 
-/* ===== Boot ===== */
-(function init(){
-  const saved = load();
-  if (saved) state = saved;
-  migrateItems();                // <- FIX JS: asegura todas las claves
-  if (state.log.length === 0) pushMsg('Sistema online. Haz clic y compra mejoras para progresar.','small');
-  renderAll();
-  setInterval(save, 5000);
+exportBtn.addEventListener('click', () => {
+  const blob=new Blob([JSON.stringify(state)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='ai-clicker-save.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+});
 
-  let last = performance.now();
-  function loop(now){
-    const dt = Math.min(0.25, (now - last) / 1000); last = now;
-    const { perSec } = computeDerived();
-    if (perSec > 0){ state.bytes += perSec*dt; state.totalBytes += perSec*dt; }
-    maybeAdvanceEra();
-    // refresco ligero de UI
-    renderTopline(); renderStore(); renderObjetivos();
+  importBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', e => {
+    const f=e.target.files[0]; if(!f) return;
+    f.text().then(t=>{
+      try{ state=migrateState(JSON.parse(t)); save(); renderAll(); pushMsg('Guardado importado.','small'); }
+      catch{ pushMsg('Archivo inválido.','small'); }
+    });
+  });
+
+  themeBtn.addEventListener('click', () => {
+    document.body.classList.toggle('light');
+    localStorage.setItem('theme', document.body.classList.contains('light')?'light':'dark');
+  });
+  soundBtn.addEventListener('click', () => {
+    sfxOn = !sfxOn;
+    localStorage.setItem('sfx', sfxOn?'on':'off');
+    soundBtn.textContent = sfxOn ? 'Sonido: ON' : 'Sonido: OFF';
+  });
+
+/* ===== Boot ===== */
+  (function init(){
+    const saved = load();
+    state = migrateState(saved || DEFAULT_STATE());
+    if (localStorage.getItem('theme')==='light') document.body.classList.add('light');
+    if (localStorage.getItem('sfx')==='on') sfxOn=true;
+    soundBtn.textContent = sfxOn ? 'Sonido: ON' : 'Sonido: OFF';
+    renderStore();
+    renderTopline(); renderLog(); renderAchievements(); applyEraVisuals(state.era);
+    updateAffordability();
+    if (state.log.length === 0) pushMsg('Sistema online. Haz clic y compra mejoras para progresar.','small');
+    checkAchievements();
+    onboarding();
+    setInterval(save, 5000);
+    scheduleEvent();
+
+    let last = performance.now();
+    let uiAcc = 0;
+    function loop(now){
+      const dt = Math.min(0.25, (now - last) / 1000); last = now;
+      const { perSec } = computeDerived();
+      if (perSec > 0){ const inc=perSec*dt; state.bytes += inc; state.totalBytes += inc; }
+      maybeAdvanceEra();
+      uiAcc += dt;
+      if (uiAcc >= 0.25){
+        uiAcc = 0;
+        renderTopline(); updateAffordability(); renderObjetivos(); checkAchievements();
+      }
+      requestAnimationFrame(loop);
+    }
     requestAnimationFrame(loop);
-  }
-  requestAnimationFrame(loop);
-})();
+  })();
 </script>
 </body>
 </html>
